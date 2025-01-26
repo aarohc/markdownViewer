@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 const { ipcRenderer } = window.require('electron');
 
-const FileTreeItem = ({ item, onFileSelect, level = 0 }) => {
+const FileTreeItem = ({ item, onFileSelect, level = 0, isSelected, selectedFile }) => {
   console.log('Rendering FileTreeItem:', item);
   const [isExpanded, setIsExpanded] = useState(false);
   const paddingLeft = `${level * 20}px`;
@@ -22,7 +22,7 @@ const FileTreeItem = ({ item, onFileSelect, level = 0 }) => {
       listStyle: 'none',
       margin: 0,
       padding: 0,
-      backgroundColor: '#fff'
+      backgroundColor: isSelected ? '#e2e8f0' : '#fff'
     }}>
       <div 
         onClick={handleItemClick}
@@ -33,7 +33,7 @@ const FileTreeItem = ({ item, onFileSelect, level = 0 }) => {
           display: 'flex',
           alignItems: 'center',
           userSelect: 'none',
-          backgroundColor: '#fff',
+          backgroundColor: isSelected ? '#e2e8f0' : '#fff',
           borderBottom: '1px solid #edf2f7',
           '&:hover': {
             backgroundColor: '#f7fafc'
@@ -65,6 +65,8 @@ const FileTreeItem = ({ item, onFileSelect, level = 0 }) => {
               item={child} 
               onFileSelect={onFileSelect}
               level={level + 1}
+              selectedFile={selectedFile}
+              isSelected={child.path === selectedFile}
             />
           ))}
         </ul>
@@ -77,28 +79,54 @@ const FolderTree = ({ onFileSelect }) => {
   const [files, setFiles] = useState([]);
   const [currentFolder, setCurrentFolder] = useState('');
   const [loading, setLoading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+
+  // Function to get all markdown files in a flat array
+  const getAllMarkdownFiles = (items) => {
+    let markdownFiles = [];
+    items.forEach(item => {
+      if (item.type === 'file' && item.isMarkdown) {
+        markdownFiles.push(item);
+      } else if (item.type === 'directory' && item.children) {
+        markdownFiles = [...markdownFiles, ...getAllMarkdownFiles(item.children)];
+      }
+    });
+    return markdownFiles;
+  };
+
+  const handleFileSelect = (path) => {
+    setSelectedFile(path);
+    onFileSelect(path);
+  };
+
+  const handleNavigation = (direction) => {
+    const markdownFiles = getAllMarkdownFiles(files);
+    const currentIndex = markdownFiles.findIndex(file => file.path === selectedFile);
+    
+    if (currentIndex === -1) return;
+
+    let newIndex;
+    if (direction === 'prev') {
+      newIndex = currentIndex > 0 ? currentIndex - 1 : markdownFiles.length - 1;
+    } else {
+      newIndex = currentIndex < markdownFiles.length - 1 ? currentIndex + 1 : 0;
+    }
+
+    handleFileSelect(markdownFiles[newIndex].path);
+  };
 
   useEffect(() => {
-    console.log('FolderTree: Setting up event listener');
-    const handleFolderSelected = (event, { path, structure }) => {
-      console.log('Received folder-selected event:', { path, structure });
-      setCurrentFolder(path);
+    const handleFolderSelected = (event, data) => {
+      console.log('Folder selected:', data);
       setLoading(true);
-      try {
-        console.log('Setting files with structure:', structure);
-        // Force a new array reference to ensure React detects the change
-        setFiles([...structure]);
-      } catch (error) {
-        console.error('Error loading files:', error);
-      } finally {
-        setLoading(false);
-      }
+      setCurrentFolder(data.path);
+      setFiles(data.structure);
+      setLoading(false);
     };
 
     ipcRenderer.on('folder-selected', handleFolderSelected);
 
     return () => {
-      console.log('FolderTree: Cleaning up event listener');
       ipcRenderer.removeListener('folder-selected', handleFolderSelected);
     };
   }, []);
@@ -110,7 +138,6 @@ const FolderTree = ({ onFileSelect }) => {
     loading 
   });
 
-  // Debug render
   return (
     <div style={{
       height: '100%',
@@ -120,7 +147,7 @@ const FolderTree = ({ onFileSelect }) => {
       flexDirection: 'column',
       border: '1px solid #cbd5e0',
       borderRadius: '4px',
-      overflow: 'hidden', // Ensure border radius works with child elements
+      overflow: 'hidden',
       boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
     }}>
       <div style={{ 
@@ -128,13 +155,55 @@ const FolderTree = ({ onFileSelect }) => {
         borderBottom: '1px solid #cbd5e0',
         backgroundColor: '#e2e8f0'
       }}>
-        <h2 style={{ 
-          margin: '0 0 8px 0', 
-          color: '#2d3748',
-          fontSize: '1.2em'
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '8px'
         }}>
-          Documents
-        </h2>
+          <h2 style={{ 
+            margin: 0,
+            color: '#2d3748',
+            fontSize: '1.2em'
+          }}>
+            Documents
+          </h2>
+          {selectedFile && (
+            <div style={{
+              display: 'flex',
+              gap: '4px'
+            }}>
+              <button
+                onClick={() => handleNavigation('prev')}
+                style={{
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  backgroundColor: '#fff',
+                  border: '1px solid #cbd5e0',
+                  borderRadius: '4px',
+                  flexShrink: 0
+                }}
+                title="Previous file"
+              >
+                ←
+              </button>
+              <button
+                onClick={() => handleNavigation('next')}
+                style={{
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  backgroundColor: '#fff',
+                  border: '1px solid #cbd5e0',
+                  borderRadius: '4px',
+                  flexShrink: 0
+                }}
+                title="Next file"
+              >
+                →
+              </button>
+            </div>
+          )}
+        </div>
         {currentFolder && (
           <div style={{ 
             fontSize: '0.8em', 
@@ -180,7 +249,9 @@ const FolderTree = ({ onFileSelect }) => {
                 <FileTreeItem 
                   key={item.path} 
                   item={item} 
-                  onFileSelect={onFileSelect}
+                  onFileSelect={handleFileSelect}
+                  selectedFile={selectedFile}
+                  isSelected={item.path === selectedFile}
                 />
               );
             })}
