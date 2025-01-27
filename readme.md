@@ -51,4 +51,4 @@ markdown-viewer/
 
 ## License
 
-MIT License - see LICENSE file for details
+GPL3 License - see LICENSE file for details
